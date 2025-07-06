@@ -46,7 +46,7 @@ async def list_dialogs(
 
 @mcp.tool
 async def list_messages(
-    dialog_id: int,
+    chat_id: int,
     unread: bool = False,
     limit: int = 100,
 ) -> list[TextContent | ImageContent | EmbeddedResource]:
@@ -59,14 +59,14 @@ async def list_messages(
     If `limit` is set, only the last `limit` messages will be listed. If `unread` is set, the limit will be
     the minimum between the unread messages and the limit.
     """
-    logger.info("method[ListMessages] dialog_id=%s unread=%s limit=%s", dialog_id, unread, limit)
+    logger.info("method[ListMessages] chat_id=%s unread=%s limit=%s", chat_id, unread, limit)
 
     response: list[TextContent] = []
     try:
         async with create_client() as client:
-            result = await client(functions.messages.GetPeerDialogsRequest(peers=[dialog_id]))
+            result = await client(functions.messages.GetPeerDialogsRequest(peers=[chat_id]))
             if not result:
-                raise ValueError(f"Channel not found: {dialog_id}")
+                raise ValueError(f"Channel not found: {chat_id}")
 
             if not isinstance(result, types.messages.PeerDialogs):
                 raise TypeError(f"Unexpected result: {type(result)}")
@@ -77,7 +77,7 @@ async def list_messages(
                 logger.debug("message: %s", message)
 
             iter_messages_args: dict[str, Any] = {
-                "entity": dialog_id,
+                "entity": chat_id,
                 "reverse": False,
             }
             if unread:
@@ -96,6 +96,23 @@ async def list_messages(
         response.append(TextContent(type="text", text=f"Error: {str(e)}"))
 
     return response
+
+
+# reply to message
+@mcp.tool
+async def reply_to_message(
+    chat_id: int,
+    message_id: int,
+    text: str,
+) -> None:
+    """Reply to a message."""
+    logger.info("method[ReplyToMessage] message_id=%s text=%s", message_id, text)
+    try:
+        async with create_client() as client:
+            await client.reply_to_message(chat_id, message_id, text)
+    except Exception as e:
+        logger.error("Error replying to message: %s", e)
+        raise e
 
 
 if __name__ == "__main__":
