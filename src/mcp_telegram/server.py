@@ -1,4 +1,5 @@
 from __future__ import annotations
+from telethon.tl.functions.messages import SendReactionRequest
 
 import logging
 import os
@@ -128,6 +129,29 @@ async def send_message(
             await client.send_message(chat_id, text)
     except Exception as e:
         logger.error("Error sending message: %s", e)
+        raise e
+
+@mcp.tool
+async def add_reaction(
+    chat_id: int,
+    message_id: int,
+    reaction: str,
+) -> None:
+    """Add a reaction to a message."""
+    logger.info("method[AddReaction] chat_id=%s message_id=%s reaction=%s", chat_id, message_id, reaction)
+    try:
+        async with create_client() as client:
+            peer = await client.get_input_entity(chat_id)
+            request = SendReactionRequest(
+                peer=peer,
+                msg_id=message_id,
+                reaction=[
+                    types.ReactionEmoji(emoticon=reaction)
+                ],
+            )
+            await client(request)
+    except Exception as e:
+        logger.error("Error adding reaction: %s", e)
         raise e
 
 if __name__ == "__main__":
