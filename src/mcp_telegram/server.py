@@ -114,6 +114,20 @@ async def reply_to_message(
         logger.error("Error replying to message: %s", e)
         raise e
 
+# add send message
+@mcp.tool
+async def send_message(
+    chat_id: int,
+    text: str,
+) -> None:
+    """Send a message to a chat."""
+    logger.info("method[SendMessage] chat_id=%s text=%s", chat_id, text)
+    try:
+        async with create_client() as client:
+            await client.send_message(chat_id, text)
+    except Exception as e:
+        logger.error("Error sending message: %s", e)
+        raise e
 
 if __name__ == "__main__":
     # Use stdio transport as it's most compatible
