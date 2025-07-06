@@ -89,8 +89,9 @@ async def list_messages(
             async for message in client.iter_messages(**iter_messages_args):
                 logger.debug("message: %s", type(message))
                 if isinstance(message, custom.Message) and message.text:
-                    logger.debug("message: %s", message.text)
-                    response.append(TextContent(type="text", text=message.text))
+                    msg = f"id={message.id} text={message.text}"
+                    logger.debug("message: %s", msg)
+                    response.append(TextContent(type="text", text=msg))
     except Exception as e:
         logger.error("Error listing messages: %s", e)
         response.append(TextContent(type="text", text=f"Error: {str(e)}"))
@@ -109,7 +110,7 @@ async def reply_to_message(
     logger.info("method[ReplyToMessage] message_id=%s text=%s", message_id, text)
     try:
         async with create_client() as client:
-            await client.reply_to_message(chat_id, message_id, text)
+            await client.send_message(chat_id, text, reply_to=message_id)
     except Exception as e:
         logger.error("Error replying to message: %s", e)
         raise e
