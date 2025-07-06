@@ -28,9 +28,9 @@ def sign_in(
 @app.command()
 def run() -> None:
     """Run the mcp-telegram server."""
-    from .server import run_mcp_server
+    from .server import mcp
 
-    asyncio.run(run_mcp_server())
+    mcp.run(transport="streamable-http")
 
 
 @app.command()

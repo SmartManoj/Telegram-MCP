@@ -12,8 +12,8 @@ from xdg_base_dirs import xdg_state_home  # type: ignore[import-error]
 
 
 class TelegramSettings(BaseSettings):
-    api_id: str
-    api_hash: str
+    api_id: str | None = None
+    api_hash: str | None = None
 
     class Config:
         env_prefix = "TELEGRAM_"

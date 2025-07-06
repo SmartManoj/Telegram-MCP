@@ -1,97 +1,104 @@
 from __future__ import annotations
 
-import asyncio
-import inspect
 import logging
-import typing as t
-from collections.abc import Sequence
-from functools import cache
+import os
+from typing import Any
+from fastmcp import FastMCP
+from mcp.types import TextContent, ImageContent, EmbeddedResource
+from telethon import TelegramClient, custom, functions, types
 
-from mcp.server import Server
-from mcp.types import (
-    EmbeddedResource,
-    ImageContent,
-    Prompt,
-    Resource,
-    ResourceTemplate,
-    TextContent,
-    Tool,
-)
+from mcp_telegram.telegram import create_client
 
-from . import tools
-
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-app = Server("mcp-telegram")
+
+port = int(os.getenv("PORT", 8000))
+mcp = FastMCP("mcp-telegram", port=port)
 
 
-@cache
-def enumerate_available_tools() -> t.Generator[tuple[str, Tool], t.Any, None]:
-    for _, tool_args in inspect.getmembers(tools, inspect.isclass):
-        if issubclass(tool_args, tools.ToolArgs) and tool_args != tools.ToolArgs:
-            logger.debug("Found tool: %s", tool_args)
-            description = tools.tool_description(tool_args)
-            yield description.name, description
+@mcp.tool
+async def list_dialogs(
+    unread: bool = False,
+    archived: bool = False,
+    ignore_pinned: bool = False,
+) -> list[TextContent | ImageContent | EmbeddedResource]:
+    """List available dialogs, chats and channels."""
+    logger.info("method[ListDialogs] unread=%s archived=%s ignore_pinned=%s", unread, archived, ignore_pinned)
 
-
-mapping: dict[str, Tool] = dict(enumerate_available_tools())
-
-
-@app.list_prompts()
-async def list_prompts() -> list[Prompt]:
-    """List available prompts."""
-    return []
-
-
-@app.list_resources()
-async def list_resources() -> list[Resource]:
-    """List available resources."""
-    return []
-
-
-@app.list_tools()
-async def list_tools() -> list[Tool]:
-    """List available tools."""
-    return list(mapping.values())
-
-
-@app.list_resource_templates()
-async def list_resource_templates() -> list[ResourceTemplate]:
-    """List available resource templates."""
-    return []
-
-
-@app.progress_notification()
-async def progress_notification(pogress: str | int, p: float, s: float | None) -> None:
-    """Progress notification."""
-
-
-@app.call_tool()
-async def call_tool(name: str, arguments: t.Any) -> Sequence[TextContent | ImageContent | EmbeddedResource]:  # noqa: ANN401
-    """Handle tool calls for command line run."""
-
-    if not isinstance(arguments, dict):
-        raise TypeError("arguments must be dictionary")
-
-    tool = mapping.get(name)
-    if not tool:
-        raise ValueError(f"Unknown tool: {name}")
-
+    response: list[TextContent] = []
     try:
-        args = tools.tool_args(tool, **arguments)
-        return await tools.tool_runner(args)
+        async with create_client() as client:
+            dialog: custom.dialog.Dialog
+            async for dialog in client.iter_dialogs(archived=archived, ignore_pinned=ignore_pinned, limit=10):
+                if unread and dialog.unread_count == 0:
+                    continue
+                msg = (
+                    f"name='{dialog.name}' id={dialog.id} "
+                    f"unread={dialog.unread_count} mentions={dialog.unread_mentions_count}"
+                )
+                response.append(TextContent(type="text", text=msg))
     except Exception as e:
-        logger.exception("Error running tool: %s", name)
-        raise RuntimeError(f"Caught Exception. Error: {e}") from e
+        logger.error("Error listing dialogs: %s", e)
+        response.append(TextContent(type="text", text=f"Error: {str(e)}"))
+
+    return response
 
 
-async def run_mcp_server() -> None:
-    # Import here to avoid issues with event loops
-    from mcp.server.stdio import stdio_server
+@mcp.tool
+async def list_messages(
+    dialog_id: int,
+    unread: bool = False,
+    limit: int = 100,
+) -> list[TextContent | ImageContent | EmbeddedResource]:
+    """
+    List messages in a given dialog, chat or channel. The messages are listed in order from newest to oldest.
 
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+    If `unread` is set to `True`, only unread messages will be listed. Once a message is read, it will not be
+    listed again.
+
+    If `limit` is set, only the last `limit` messages will be listed. If `unread` is set, the limit will be
+    the minimum between the unread messages and the limit.
+    """
+    logger.info("method[ListMessages] dialog_id=%s unread=%s limit=%s", dialog_id, unread, limit)
+
+    response: list[TextContent] = []
+    try:
+        async with create_client() as client:
+            result = await client(functions.messages.GetPeerDialogsRequest(peers=[dialog_id]))
+            if not result:
+                raise ValueError(f"Channel not found: {dialog_id}")
+
+            if not isinstance(result, types.messages.PeerDialogs):
+                raise TypeError(f"Unexpected result: {type(result)}")
+
+            for dialog in result.dialogs:
+                logger.debug("dialog: %s", dialog)
+            for message in result.messages:
+                logger.debug("message: %s", message)
+
+            iter_messages_args: dict[str, Any] = {
+                "entity": dialog_id,
+                "reverse": False,
+            }
+            if unread:
+                iter_messages_args["limit"] = min(dialog.unread_count, limit)
+            else:
+                iter_messages_args["limit"] = limit
+
+            logger.debug("iter_messages_args: %s", iter_messages_args)
+            async for message in client.iter_messages(**iter_messages_args):
+                logger.debug("message: %s", type(message))
+                if isinstance(message, custom.Message) and message.text:
+                    logger.debug("message: %s", message.text)
+                    response.append(TextContent(type="text", text=message.text))
+    except Exception as e:
+        logger.error("Error listing messages: %s", e)
+        response.append(TextContent(type="text", text=f"Error: {str(e)}"))
+
+    return response
 
 
-def main() -> None:
-    asyncio.run(run_mcp_server())
+if __name__ == "__main__":
+    # Use stdio transport as it's most compatible
+    logger.info("Starting MCP Telegram server with stdio transport")
+    mcp.run(transport="streamable-http")
